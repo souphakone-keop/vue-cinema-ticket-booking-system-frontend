@@ -141,30 +141,6 @@ npm run build      # production build → dist/
 npm run preview    # preview the production build locally
 ```
 
-Requires the backend (and Redis) running separately, or `VITE_API_BASE_URL`
+Requires the backend (and Redis) running separately, or `VITE_API_BASE_URL` and `VITE_GOOGLE_CLIENT_ID`
 pointed at wherever it's hosted.
 
-## Docker
-
-Multi-stage build: Node builds the static bundle, nginx serves it.
-
-```bash
-docker build -t cinema-frontend \
-  --build-arg VITE_API_BASE_URL=http://localhost:8080 \
-  .
-docker run -p 8080:80 cinema-frontend
-```
-
-Because Vite bakes `VITE_*` vars into the JS bundle at build time, the
-backend URL **must** be passed as a `--build-arg` (or via `build.args` in
-`docker-compose.yml`) — setting it as a container runtime env var has no
-effect after the image is built.
-
-`nginx.conf` serves the SPA with `try_files $uri $uri/ /index.html`
-(the app itself uses hash-based routing, so this mainly matters for
-direct-hit static asset requests).
-
-To wire this into the full system's `docker compose up --build`, add a
-`frontend` service in the backend repo's `docker-compose.yml` pointing
-`build.context` at this repo and `build.args.VITE_API_BASE_URL` at the
-backend service's internal address (e.g. `http://backend:8080`).

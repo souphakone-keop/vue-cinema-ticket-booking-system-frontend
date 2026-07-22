@@ -141,30 +141,5 @@ npm run build      # production build → dist/
 npm run preview    # preview production build บนเครื่อง
 ```
 
-ต้องมี backend (และ Redis) รันอยู่แยกต่างหาก หรือชี้ `VITE_API_BASE_URL`
+ต้องมี backend (และ Redis) รันอยู่แยกต่างหาก หรือชี้ `VITE_API_BASE_URL` และ  `VITE_GOOGLE_CLIENT_ID`
 ไปที่ที่ backend ถูก host ไว้จริง
-
-## Docker
-
-Multi-stage build: Node build ตัว static bundle แล้ว nginx เป็นคน serve
-
-```bash
-docker build -t cinema-frontend \
-  --build-arg VITE_API_BASE_URL=http://localhost:8080 \
-  .
-docker run -p 8080:80 cinema-frontend
-```
-
-เพราะ Vite bake ค่า `VITE_*` เข้าไปใน JS bundle ตอน build time ค่า backend
-URL **ต้อง** ส่งผ่าน `--build-arg` (หรือ `build.args` ใน
-`docker-compose.yml`) เท่านั้น — ตั้งเป็น env variable ตอน container runtime
-จะไม่มีผลอะไรเลยหลังจาก image ถูก build เสร็จแล้ว
-
-`nginx.conf` serve แบบ SPA ด้วย `try_files $uri $uri/ /index.html`
-(ตัวแอปเองใช้ hash-based routing อยู่แล้ว การตั้งค่านี้จึงมีผลหลักๆ กับ
-การเรียก static asset ตรงๆ เท่านั้น)
-
-ถ้าจะรวมเข้ากับ `docker compose up --build` ของทั้งระบบ ให้เพิ่ม service
-`frontend` ใน `docker-compose.yml` ของ backend repo โดยชี้ `build.context`
-มาที่ repo นี้ และตั้ง `build.args.VITE_API_BASE_URL` เป็น address ที่
-browser เข้าถึง backend ได้จริง (เช่น `http://localhost:8080`)
