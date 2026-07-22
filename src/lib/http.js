@@ -41,7 +41,11 @@ adminHttp.interceptors.request.use((config) => {
 adminHttp.interceptors.response.use(
     (response) => response,
     (error) => {
-        if (error.response?.status === 401) {
+        // 401 = expired/invalid token. 403 = backend's RequireRole(ADMIN)
+        // rejected a still-valid token because the account's role was
+        // changed away from ADMIN after this session started — treat both
+        // as "no longer an authenticated admin" and force logout.
+        if (error.response?.status === 401 || error.response?.status === 403) {
             localStorage.removeItem("admin_token");
             localStorage.removeItem("admin_user");
             window.location.hash = "#/admin/login";

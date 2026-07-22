@@ -1,6 +1,17 @@
 <script setup>
 import { ref, onMounted } from "vue";
+import { useRouter } from "vue-router";
 import { adminHttp } from "../../lib/http";
+
+const router = useRouter();
+
+function currentAdminId() {
+    try {
+        return JSON.parse(localStorage.getItem("admin_user") || "null")?.id;
+    } catch {
+        return null;
+    }
+}
 
 const users = ref([]);
 const loading = ref(true);
@@ -41,6 +52,18 @@ const confirmRoleChange = async () => {
     error.value = "";
     try {
         await adminHttp.put(`/users/${user.id}`, { role });
+
+        // Demoting your own account: the backend will reject the next
+        // admin API call anyway (RequireRole(ADMIN) re-checks every
+        // request), so log out immediately instead of waiting for that
+        // to 403 in some other spot.
+        if (user.id === currentAdminId() && role !== "ADMIN") {
+            localStorage.removeItem("admin_token");
+            localStorage.removeItem("admin_user");
+            router.push({ name: "admin-login" });
+            return;
+        }
+
         await fetchUsers();
     } catch (err) {
         error.value = err.response?.data?.error || err.message;

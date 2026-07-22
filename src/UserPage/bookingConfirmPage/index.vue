@@ -114,7 +114,7 @@ function goToMyTickets() {
                         <span v-if="submitting" class="loading loading-spinner loading-sm"></span>
                         {{ submitting ? "Confirming..." : "Confirm Booking" }}
                     </button>
-
+                    
                     <button class="btn btn-dark w-full mt-2 text-gray-400" @click="router.back()">
                         Cancel
                     </button>
