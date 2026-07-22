@@ -122,11 +122,25 @@ const router = createRouter({
   ],
 });
 
+function adminSessionRole() {
+  const token = localStorage.getItem("admin_token");
+  if (!token) return null;
+
+  try {
+    return JSON.parse(localStorage.getItem("admin_user"))?.role ?? null;
+  } catch {
+    return null;
+  }
+}
+
 router.beforeEach((to) => {
   const isAdminRoute = to.path.startsWith("/admin");
   const isAdminAuthRoute = to.name === "admin-login" || to.name === "admin-logout";
 
-  const hasAdminSession = !!localStorage.getItem("admin_token");
+  // Requires both a token and a role of ADMIN — a plain USER token stored
+  // here (or a tampered admin_user blob) doesn't grant access. The backend
+  // still enforces this on every request; this only gates the UI.
+  const hasAdminSession = adminSessionRole() === "ADMIN";
 
   if (isAdminRoute && !isAdminAuthRoute && !hasAdminSession) {
     return { name: "admin-login" };
