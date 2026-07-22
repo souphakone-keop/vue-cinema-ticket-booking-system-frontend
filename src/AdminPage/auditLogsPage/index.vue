@@ -1,18 +1,11 @@
 <script setup>
-import { ref, onMounted } from "vue";
+import { ref, onMounted, onBeforeUnmount } from "vue";
 import { adminHttp } from "../../lib/http";
+import { connectAuditLogSocket } from "../../composables/useAuditLogSocket";
 
 const logs = ref([]);
 const loading = ref(true);
 const error = ref("");
-
-// Audit log entries only carry raw IDs (user_id / booking_id / seat_id).
-// Users and bookings lists already return human-readable names/seat codes,
-// so we fetch them once and join client-side instead of asking the
-// backend to change the log payload shape.
-const usersById = ref(new Map());
-const bookingsById = ref(new Map());
-const seatCodesById = ref(new Map());
 
 const filters = ref({
     user_id: "",
@@ -41,45 +34,6 @@ const eventBadge = (type) => {
     }
 };
 
-const fetchLookups = async () => {
-    try {
-        const [usersRes, bookingsRes] = await Promise.all([
-            adminHttp.get("/users"),
-            adminHttp.get("/admin/bookings"),
-        ]);
-
-        const users = usersRes.data.users || (Array.isArray(usersRes.data) ? usersRes.data : []);
-        usersById.value = new Map(users.map((u) => [u.id, u]));
-
-        const bookings = bookingsRes.data.bookings || (Array.isArray(bookingsRes.data) ? bookingsRes.data : []);
-        bookingsById.value = new Map(bookings.map((b) => [b.id, b]));
-
-        const seatMap = new Map();
-        for (const b of bookings) {
-            const ids = b.seat_ids || [];
-            const codes = b.seat_codes || [];
-            ids.forEach((seatId, i) => {
-                if (codes[i]) seatMap.set(seatId, codes[i]);
-            });
-        }
-        seatCodesById.value = seatMap;
-    } catch {
-        // Lookups are a display nicety — if they fail, logs still render
-        // with raw IDs instead of blocking the page.
-    }
-};
-
-function userDisplay(log) {
-    const user = usersById.value.get(log.user_id) || bookingsById.value.get(log.booking_id);
-    return user?.name || user?.user_name || null;
-}
-
-function seatDisplay(log) {
-    return seatCodesById.value.get(log.seat_id)
-        || bookingsById.value.get(log.booking_id)?.seat_codes?.join(", ")
-        || null;
-}
-
 const fetchLogs = async () => {
     loading.value = true;
     error.value = "";
@@ -102,9 +56,32 @@ const fetchLogs = async () => {
     }
 };
 
+// The WS broadcast doesn't include an `id` field, unlike the REST list —
+// synthesize one so :key stays stable and unique.
+function withKey(log) {
+    return { id: log.id || `${log.created_at}-${log.event_type}-${log.seat_id || log.user_id}`, ...log };
+}
+
+function matchesFilters(log) {
+    if (filters.value.user_id && log.user_id !== filters.value.user_id) return false;
+    if (filters.value.event_type && log.event_type !== filters.value.event_type) return false;
+    return true;
+}
+
+function handleLogCreated(log) {
+    if (!matchesFilters(log)) return;
+    logs.value = [withKey(log), ...logs.value];
+}
+
+let closeSocket = null;
+
 onMounted(() => {
-    fetchLookups();
     fetchLogs();
+    closeSocket = connectAuditLogSocket(handleLogCreated);
+});
+
+onBeforeUnmount(() => {
+    closeSocket?.();
 });
 
 function resetFilters() {
@@ -199,12 +176,12 @@ function formatDate(value) {
                             </td>
                             <td class="text-slate-700">{{ log.message || "—" }}</td>
                             <td>
-                                <p v-if="userDisplay(log)" class="text-slate-900">{{ userDisplay(log) }}</p>
+                                <p class="text-slate-900">{{ log.user_name ?? "—" }}</p>
                                 <p class="font-mono text-xs text-slate-500">{{ log.user_id || "—" }}</p>
                             </td>
                             <td class="font-mono text-xs text-slate-500">{{ log.booking_id || "—" }}</td>
                             <td>
-                                <p v-if="seatDisplay(log)" class="text-slate-900">{{ seatDisplay(log) }}</p>
+                                <p class="text-slate-900">{{ log.seat_code ?? "—" }}</p>
                                 <p class="font-mono text-xs text-slate-500">{{ log.seat_id || "—" }}</p>
                             </td>
                             <td class="text-slate-500 text-xs">{{ formatDate(log.created_at) }}</td>

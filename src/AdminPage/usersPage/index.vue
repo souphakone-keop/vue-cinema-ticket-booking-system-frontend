@@ -41,7 +41,7 @@ const confirmRoleChange = async () => {
     error.value = "";
     try {
         await adminHttp.put(`/users/${user.id}`, { role });
-        user.role = role;
+        await fetchUsers();
     } catch (err) {
         error.value = err.response?.data?.error || err.message;
     } finally {
@@ -58,8 +58,8 @@ const deleteUser = async () => {
     if (!deleteTarget.value) return;
     try {
         await adminHttp.delete(`/users/${deleteTarget.value.id}`);
-        users.value = users.value.filter((u) => u.id !== deleteTarget.value.id);
         deleteTarget.value = null;
+        await fetchUsers();
     } catch (err) {
         error.value = err.response?.data?.error || err.message;
         deleteTarget.value = null;
