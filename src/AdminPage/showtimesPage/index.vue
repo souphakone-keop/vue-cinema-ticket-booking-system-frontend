@@ -167,6 +167,13 @@ const deleteShowtime = async () => {
     }
 };
 
+// Showtime start/end times are wall-clock times the admin typed in (via
+// `daily_time` on the bulk-create form) — the backend stores them verbatim
+// with a "Z" suffix rather than actually converting a timezone. Formatting
+// with the browser's local timezone would shift the displayed hour by
+// whatever the viewer's UTC offset is (e.g. entering 22:00 showing as
+// 23:00) — read the UTC fields directly so the displayed time always
+// matches what was typed, regardless of the viewer's timezone.
 function formatDateTime(value) {
     if (!value) return "—";
     return new Date(value).toLocaleString([], {
@@ -174,6 +181,7 @@ function formatDateTime(value) {
         day: "numeric",
         hour: "2-digit",
         minute: "2-digit",
+        timeZone: "UTC",
     });
 }
 </script>

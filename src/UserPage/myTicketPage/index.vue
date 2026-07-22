@@ -33,6 +33,24 @@ function formatDateTime(value) {
     });
 }
 
+// `showtime_start_time` is the wall-clock time an admin typed into the
+// bulk-create form — the backend stores it verbatim with a "Z" suffix, it
+// isn't a true UTC instant. Formatting with the browser's local timezone
+// would shift the displayed hour by the viewer's UTC offset, so read the
+// UTC fields directly instead of using `formatDateTime` above (which is
+// correct for `created_at`, a genuine server timestamp).
+function formatShowtime(value) {
+    if (!value) return "—";
+    return new Date(value).toLocaleString([], {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZone: "UTC",
+    });
+}
+
 const fetchTickets = async () => {
     loading.value = true;
     error.value = "";
@@ -118,7 +136,7 @@ onMounted(fetchTickets);
 
                     <div class="space-y-1.5 text-sm">
                         <p class="text-gray-300">
-                            🕒 {{ formatDateTime(booking.showtime_start_time) }}
+                            🕒 {{ formatShowtime(booking.showtime_start_time) }}
                         </p>
                         <p class="text-gray-300">
                             💺 Seats: <span class="font-medium text-white">{{ (booking.seat_codes || []).join(", ") || "—" }}</span>

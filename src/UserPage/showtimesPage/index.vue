@@ -14,10 +14,27 @@ const loading = ref(true);
 const error = ref("");
 const selectedDate = ref(todayDate);
 
-// Showtimes on the selected day, sorted earliest first.
+// `start_time` is a wall-clock value stored verbatim with a fake "Z"
+// suffix (see formatDateTime below) — its literal digits are the intended
+// time, not a true UTC instant. To compare it against "now" without the
+// same timezone drift, re-express "now" the same way: take the browser's
+// real local wall-clock reading and stamp it as if it were UTC, so both
+// sides of the comparison live in the same fake-UTC space.
+function isPastShowtime(startTime) {
+    if (!startTime) return false;
+    const now = new Date();
+    const nowAsFakeUtc = Date.UTC(
+        now.getFullYear(), now.getMonth(), now.getDate(),
+        now.getHours(), now.getMinutes(), now.getSeconds()
+    );
+    return new Date(startTime).getTime() < nowAsFakeUtc;
+}
+
+// Showtimes on the selected day that haven't already started, sorted
+// earliest first.
 const filteredShowtimes = computed(() =>
     showtimes.value
-        .filter((s) => s.start_time?.slice(0, 10) === selectedDate.value)
+        .filter((s) => s.start_time?.slice(0, 10) === selectedDate.value && !isPastShowtime(s.start_time))
         .sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
 );
 
@@ -46,6 +63,11 @@ const fetchShowtimes = async () => {
 
 onMounted(fetchShowtimes);
 
+// `start_time` is the wall-clock time an admin typed into the bulk-create
+// form — the backend stores it verbatim with a "Z" suffix, it isn't a true
+// UTC instant. Formatting with the browser's local timezone would shift
+// the displayed hour by the viewer's UTC offset, so read the UTC fields
+// directly instead.
 function formatDateTime(value) {
     if (!value) return "";
     const date = new Date(value);
@@ -55,6 +77,7 @@ function formatDateTime(value) {
         day: "numeric",
         hour: "2-digit",
         minute: "2-digit",
+        timeZone: "UTC",
     });
 }
 
