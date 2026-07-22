@@ -16,7 +16,7 @@ How to build, run, and update this frontend service in Docker. See
 ## 1. Build the image
 
 ```bash
-docker build -t cinema-frontend \
+docker build -t  vue-cinema-ticket-booking-system-frontend \
   --build-arg VITE_API_BASE_URL=http://localhost:8080 \
   .
 ```
@@ -29,7 +29,7 @@ built without rebuilding.
 ## 2. Run the container
 
 ```bash
-docker run -d --name cinema-frontend -p 3000:80 cinema-frontend
+docker run -d --name  vue-cinema-ticket-booking-system-frontend -p 3000:80  vue-cinema-ticket-booking-system-frontend
 ```
 
 Open `http://localhost:3000`. Port `80` inside the container is fixed
@@ -39,7 +39,7 @@ map it to `8080`, since the backend already listens there.
 Stop/remove:
 
 ```bash
-docker stop cinema-frontend && docker rm cinema-frontend
+docker stop  vue-cinema-ticket-booking-system-frontend && docker rm  vue-cinema-ticket-booking-system-frontend
 ```
 
 ## 3. Updating code
@@ -49,9 +49,9 @@ was in `dist/` at build time. There's no volume mount or hot-reload wired
 up, so code changes need a rebuild to take effect:
 
 ```bash
-docker stop cinema-frontend && docker rm cinema-frontend
-docker build -t cinema-frontend --build-arg VITE_API_BASE_URL=http://localhost:8080 .
-docker run -d --name cinema-frontend -p 3000:80 cinema-frontend
+docker stop  vue-cinema-ticket-booking-system-frontend && docker rm  vue-cinema-ticket-booking-system-frontend
+docker build -t  vue-cinema-ticket-booking-system-frontend --build-arg VITE_API_BASE_URL=http://localhost:8080 .
+docker run -d --name  vue-cinema-ticket-booking-system-frontend -p 3000:80  vue-cinema-ticket-booking-system-frontend
 ```
 
 For active development, run `npm run dev` on the host instead (instant

@@ -1,22 +1,22 @@
 # Frontend service definition for the Cinema Ticket Booking System.
 #
-# This repo only owns the `frontend` service below. Merge it into the
-# backend team's docker-compose.yml (which already defines backend, redis,
-# mongo, etc.) rather than running this file standalone.
+# Runs standalone as-is (`docker compose up --build`) for local frontend
+# testing against a backend already running on the host (e.g. via `docker
+# run` or another compose project) at VITE_API_BASE_URL below.
 #
-# `context` must point at this repo's location relative to wherever the
-# final compose file lives — adjust the path below to match.
+# To fold this into the full system, merge the `frontend` service into the
+# backend team's docker-compose.yml (which defines backend, redis, mongo,
+# etc.), add back a `depends_on: [backend]`, and point `context` at this
+# repo's location relative to that compose file.
 services:
   frontend:
     build:
-      context: ../vue-cinema-ticket-booking-system-frontend
+      context: .
       args:
         # Must be a URL the *browser* can reach (Vite bakes this in at
         # build time) — not an internal Docker network hostname.
         VITE_API_BASE_URL: http://localhost:8080
     ports:
       - "3000:80"
-    depends_on:
-      - backend
 
 
