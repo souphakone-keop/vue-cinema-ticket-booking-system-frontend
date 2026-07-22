@@ -28,10 +28,11 @@ message queue) lives in a separate repository.
 src/
 ├── main.js                   # App entry, mounts router
 ├── router/index.js           # Routes + auth/role navigation guards
-├── lib/http.js                # Axios instances (user + admin), token injection, 401 handling
+├── lib/http.js                # Axios instances (user + admin), token injection, 401/403 handling
 ├── composables/
 │   ├── useGoogleAuth.js       # Loads Google Identity Services script, renders sign-in button
-│   └── useSeatSocket.js       # WebSocket client for live seat-map updates
+│   ├── useSeatSocket.js       # WebSocket client for live seat-map updates
+│   └── useAuditLogSocket.js   # WebSocket client for live audit log entries (admin)
 │
 ├── UserPage/                  # Customer-facing app
 │   ├── mainPage/               # Layout shell (navbar + footer + <router-view>)
@@ -50,7 +51,7 @@ src/
     ├── homePage/                   # Dashboard
     ├── moviesPage/, showtimesPage/, usersPage/
     ├── bookingsPage/                # All bookings, filterable
-    └── auditLogsPage/                # System event log, filterable
+    └── auditLogsPage/                # Live system event log, filterable
 ```
 
 ## Authentication & Sessions
@@ -66,14 +67,21 @@ instance (`http` and `adminHttp` in `src/lib/http.js`):
 - Login (`/auth/login`) and Google Sign-In both return a JWT + user object
   (including `role`). The JWT is attached as `Authorization: Bearer <token>`
   on every request via an Axios request interceptor.
-- A response interceptor watches for `401` on either client: it clears that
-  session's storage and redirects to the matching login page
-  (`/login` or `/admin/login`).
+- A response interceptor watches for `401` **and `403`** on either client: it
+  clears that session's storage and redirects to the matching login page
+  (`/login` or `/admin/login`). `403` is included because the backend's
+  `RequireRole(ADMIN)` re-checks the role on every request — if an admin's
+  role is revoked mid-session (by another admin, or by demoting themselves
+  on the Users page), the very next admin API call gets rejected and this
+  logs them out automatically instead of leaving a dead session on screen.
+- The Users page (`AdminPage/usersPage`) additionally checks: if the admin
+  changes **their own** role away from `ADMIN`, it logs out immediately
+  after the request succeeds rather than waiting for the next call to 403.
 - **Role enforcement is done by the backend** (`RequireRole(ADMIN)` on admin
   endpoints) — the frontend router guard only checks the locally-stored
   `role` to avoid rendering admin screens for non-admins. It is a UX gate,
   not a security boundary; a user who bypasses it still gets a `403` from
-  the API.
+  the API (which now also triggers the logout above).
 
 ### Google Sign-In
 
@@ -93,9 +101,11 @@ email/password login still works.
    the user already holds calls `POST /seats/:id/unlock`. A `409` response
    means someone else grabbed it first — the seat map self-corrects via the
    next WebSocket broadcast.
-3. A client-side countdown mirrors the backend's 5-minute lock TTL
-   (`LOCK_TTL_SECONDS`). When it hits zero the local selection is cleared
-   and the user is shown a "hold expired" notice.
+3. A client-side countdown mirrors the backend's lock TTL by reading
+   `expires_at` straight from the lock response — it is never hardcoded on
+   the frontend, so the countdown tracks whatever TTL the backend is
+   currently configured with (it has changed more than once) without a
+   frontend deploy.
 4. Any locked-but-unconfirmed seats are released (`POST /seats/:id/unlock`)
    if the user navigates away without confirming (`onBeforeUnmount`).
 5. Selected seats + showtime are handed off via `sessionStorage` to
@@ -112,8 +122,14 @@ email/password login still works.
   showtime ID, status, and date range.
 - **Audit Logs** (`/admin/audit-logs`): system events (`BOOKING_SUCCESS`,
   `BOOKING_TIMEOUT`, `SEAT_RELEASED`, `SYSTEM_ERROR`), filterable by user ID
-  and event type.
-- Movies / Showtimes / Users pages for basic CRUD/listing.
+  and event type. Each entry already includes `user_name` and `seat_code`
+  from the backend — no client-side lookup/joining needed. New entries
+  stream in **live** over WebSocket (`useAuditLogSocket.js`, connects to
+  `GET /ws/admin/audit-logs?token=<admin_jwt>`) and are prepended to the
+  table the instant the backend writes them; there is no polling.
+- **Movies / Showtimes / Users**: after any create/edit/delete/role-change
+  action, the page refetches its list from the server (rather than mutating
+  local state) so the table always reflects what's actually persisted.
 
 ## Environment Variables
 
@@ -130,7 +146,7 @@ Both are read via `import.meta.env.*`. `VITE_API_BASE_URL` falls back to
 without it, Google Sign-In just doesn't render.
 
 ⚠️ Vite inlines `VITE_*` variables **at build time**, not runtime — see
-Docker section below.
+[README.Docker.md](./README.Docker.md).
 
 ## Local Development
 
@@ -141,6 +157,12 @@ npm run build      # production build → dist/
 npm run preview    # preview the production build locally
 ```
 
-Requires the backend (and Redis) running separately, or `VITE_API_BASE_URL` and `VITE_GOOGLE_CLIENT_ID`
-pointed at wherever it's hosted.
+Requires the backend (and Redis) running separately, or `VITE_API_BASE_URL`
+and `VITE_GOOGLE_CLIENT_ID` pointed at wherever it's hosted.
 
+## Docker
+
+See [README.Docker.md](./README.Docker.md) (English) or
+[README.Docker.th.md](./README.Docker.th.md) (ภาษาไทย) for building, running,
+and updating this service in Docker, plus how it plugs into the full
+system's `docker compose up --build`.

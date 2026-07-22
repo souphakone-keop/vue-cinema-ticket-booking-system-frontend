@@ -28,10 +28,11 @@ lock, message queue) อยู่คนละ repository
 src/
 ├── main.js                   # จุดเริ่มแอป, mount router
 ├── router/index.js           # Routes + navigation guard เช็ค auth/role
-├── lib/http.js                # Axios instance (user + admin), แนบ token, จัดการ 401
+├── lib/http.js                # Axios instance (user + admin), แนบ token, จัดการ 401/403
 ├── composables/
 │   ├── useGoogleAuth.js       # โหลดสคริปต์ Google Identity Services, render ปุ่ม sign-in
-│   └── useSeatSocket.js       # WebSocket client สำหรับอัปเดตผังที่นั่งแบบ real-time
+│   ├── useSeatSocket.js       # WebSocket client สำหรับอัปเดตผังที่นั่งแบบ real-time
+│   └── useAuditLogSocket.js   # WebSocket client สำหรับ audit log แบบ real-time (admin)
 │
 ├── UserPage/                  # ฝั่งผู้ใช้ทั่วไป
 │   ├── mainPage/               # Layout หลัก (navbar + footer + <router-view>)
@@ -50,7 +51,7 @@ src/
     ├── homePage/                   # Dashboard
     ├── moviesPage/, showtimesPage/, usersPage/
     ├── bookingsPage/                # รายการ booking ทั้งหมด, filter ได้
-    └── auditLogsPage/                # log เหตุการณ์ในระบบ, filter ได้
+    └── auditLogsPage/                # log เหตุการณ์ในระบบแบบ real-time, filter ได้
 ```
 
 ## Authentication & Session
@@ -66,14 +67,22 @@ src/
 - Login (`/auth/login`) และ Google Sign-In จะคืน JWT + user object (มี `role`
   ติดมาด้วย) JWT จะถูกแนบเป็น `Authorization: Bearer <token>` ทุก request
   ผ่าน Axios request interceptor โดยอัตโนมัติ
-- Response interceptor คอยดักจับ `401` ของทั้งสอง client: ถ้าเจอจะล้าง
-  session ที่เกี่ยวข้องออกจาก storage แล้ว redirect ไปหน้า login ที่ตรงกัน
-  (`/login` หรือ `/admin/login`)
+- Response interceptor คอยดักจับทั้ง `401` **และ `403`** ของทั้งสอง client:
+  ถ้าเจอจะล้าง session ที่เกี่ยวข้องออกจาก storage แล้ว redirect ไปหน้า login
+  ที่ตรงกัน (`/login` หรือ `/admin/login`) — เหตุผลที่รวม `403` ด้วยเพราะ
+  backend เช็ค `RequireRole(ADMIN)` ทุก request อยู่แล้ว ถ้า role ของแอดมิน
+  ถูกเปลี่ยนออกจาก ADMIN ระหว่างที่ session ยังเปิดอยู่ (ไม่ว่าจะโดนแอดมิน
+  คนอื่นเปลี่ยน หรือ demote ตัวเอง) request ครั้งถัดไปจะโดน `403` และตอนนี้
+  จะ logout ให้อัตโนมัติทันที แทนที่จะค้างอยู่ในหน้าที่ใช้งานไม่ได้แล้ว
+- หน้า Users (`AdminPage/usersPage`) มีเช็คเพิ่ม: ถ้าแอดมินเปลี่ยน role ของ
+  **ตัวเอง** ออกจาก `ADMIN` จะ logout ทันทีหลัง request สำเร็จ ไม่ต้องรอให้
+  request ถัดไปโดน 403 ก่อน
 - **การตรวจสอบ role จริงทำที่ backend** (`RequireRole(ADMIN)` ครอบ endpoint
   ของ admin) — router guard ฝั่ง frontend เช็คแค่ `role` ที่เก็บไว้ใน
   localStorage เพื่อไม่ให้ render หน้า admin ให้คนที่ไม่ใช่ admin เห็นเฉยๆ
   ถือเป็นแค่ UX gate ไม่ใช่ security boundary จริง — ต่อให้ผู้ใช้ทั่วไป
-  หลุด guard นี้เข้ามาได้ ก็ยังโดน `403` จาก API อยู่ดี
+  หลุด guard นี้เข้ามาได้ ก็ยังโดน `403` จาก API อยู่ดี (ซึ่งตอนนี้จะ trigger
+  การ logout ด้านบนด้วย)
 
 ### Google Sign-In
 
@@ -92,9 +101,10 @@ src/
    ตัวเองล็อกอยู่แล้ว → เรียก `POST /seats/:id/unlock` ถ้าได้ `409` กลับมา
    แปลว่ามีคนอื่นแย่งไปก่อนแล้ว — ผังที่นั่งจะอัปเดตให้เองผ่าน WebSocket
    broadcast รอบถัดไป
-3. มี countdown ฝั่ง client ที่ mirror ตาม TTL ของ lock ฝั่ง backend (5 นาที,
-   ตัวแปร `LOCK_TTL_SECONDS`) เมื่อหมดเวลาจะล้างที่นั่งที่เลือกไว้ และแจ้ง
-   เตือนว่า "hold expired"
+3. countdown ฝั่ง client อ่านค่า `expires_at` ตรงจาก response ของ lock
+   endpoint เสมอ — ไม่ hardcode TTL ไว้ในโค้ดฝั่ง frontend เลย ทำให้ countdown
+   ปรับตาม TTL จริงที่ backendตั้งค่าอยู่ ณ ขณะนั้น (เคยเปลี่ยนมาแล้วมากกว่า
+   หนึ่งครั้ง) โดยไม่ต้อง deploy frontend ใหม่
 4. ถ้าผู้ใช้ออกจากหน้านี้โดยยังไม่ได้ confirm ที่นั่งที่ล็อกไว้จะถูกปล่อย
    อัตโนมัติ (`POST /seats/:id/unlock`) ผ่าน `onBeforeUnmount`
 5. ที่นั่งที่เลือก + ข้อมูลรอบฉายจะถูกส่งต่อผ่าน `sessionStorage` ไปยัง
@@ -112,8 +122,14 @@ src/
   ID, showtime ID, status, และช่วงวันที่
 - **Audit Logs** (`/admin/audit-logs`): เหตุการณ์ในระบบ (`BOOKING_SUCCESS`,
   `BOOKING_TIMEOUT`, `SEAT_RELEASED`, `SYSTEM_ERROR`), filter ได้ตาม user ID
-  และประเภทเหตุการณ์
-- หน้า Movies / Showtimes / Users สำหรับ CRUD/แสดงรายการพื้นฐาน
+  และประเภทเหตุการณ์ แต่ละ entry มี `user_name`/`seat_code` มาจาก backend
+  ตรงๆ อยู่แล้ว ไม่ต้อง join ฝั่ง client เพิ่ม และ log ใหม่จะขึ้นแบบ
+  **real-time** ผ่าน WebSocket (`useAuditLogSocket.js`, เชื่อมกับ
+  `GET /ws/admin/audit-logs?token=<admin_jwt>`) โดย prepend เข้าตารางทันทีที่
+  backend เขียน log — ไม่มีการ polling แล้ว
+- **Movies / Showtimes / Users**: หลังทำ action สร้าง/แก้ไข/ลบ/เปลี่ยน role
+  ใดๆ หน้าจะ refetch รายการจาก server ใหม่เสมอ (แทนที่จะแก้ local state เฉยๆ)
+  เพื่อให้ตารางตรงกับข้อมูลจริงที่ persist ไว้เสมอ
 
 ## Environment Variables
 
@@ -129,8 +145,8 @@ VITE_GOOGLE_CLIENT_ID=<your-google-oauth-client-id>
 fallback เป็น `http://localhost:8080` ถ้าไม่ตั้งค่า; `VITE_GOOGLE_CLIENT_ID`
 ไม่มี fallback — ถ้าไม่ตั้งค่า Google Sign-In จะไม่ขึ้นปุ่มให้กดเฉยๆ
 
-⚠️ Vite จะ inline ค่า `VITE_*` **ตอน build time** ไม่ใช่ runtime — ดูหัวข้อ
-Docker ด้านล่างประกอบ
+⚠️ Vite จะ inline ค่า `VITE_*` **ตอน build time** ไม่ใช่ runtime — ดู
+[README.Docker.th.md](./README.Docker.th.md) ประกอบ
 
 ## รันแบบ Local Development
 
@@ -141,5 +157,12 @@ npm run build      # production build → dist/
 npm run preview    # preview production build บนเครื่อง
 ```
 
-ต้องมี backend (และ Redis) รันอยู่แยกต่างหาก หรือชี้ `VITE_API_BASE_URL` และ  `VITE_GOOGLE_CLIENT_ID`
-ไปที่ที่ backend ถูก host ไว้จริง
+ต้องมี backend (และ Redis) รันอยู่แยกต่างหาก หรือชี้ `VITE_API_BASE_URL` และ
+`VITE_GOOGLE_CLIENT_ID` ไปที่ที่ backend ถูก host ไว้จริง
+
+## Docker
+
+ดู [README.Docker.md](./README.Docker.md) (English) หรือ
+[README.Docker.th.md](./README.Docker.th.md) (ภาษาไทย) สำหรับวิธี build, รัน,
+update service นี้ใน Docker รวมถึงวิธีต่อเข้ากับ `docker compose up --build`
+ของทั้งระบบ
