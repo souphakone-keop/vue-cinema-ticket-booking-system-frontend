@@ -4,8 +4,6 @@ import { useRoute, useRouter } from "vue-router";
 import { http } from "../../lib/http";
 import { connectSeatSocket } from "../../composables/useSeatSocket";
 
-const LOCK_TTL_SECONDS = 300; // matches backend AcquireSeatLock TTL (5 min)
-
 const route = useRoute();
 const router = useRouter();
 
@@ -95,9 +93,12 @@ const countdownLabel = computed(() => {
     return `${m}:${String(s).padStart(2, "0")}`;
 });
 
-function startCountdownIfNeeded() {
+// `expiresAt` comes straight from the lock endpoint's response — never
+// hardcode the TTL client-side, since the backend can change it at any
+// time (e.g. 5min -> 1min) without a frontend deploy.
+function startCountdownIfNeeded(expiresAt) {
     if (lockDeadline.value) return; // already counting down for this batch
-    lockDeadline.value = Date.now() + LOCK_TTL_SECONDS * 1000;
+    lockDeadline.value = new Date(expiresAt).getTime();
 
     countdownTimer = setInterval(() => {
         const secondsLeft = Math.max(0, Math.round((lockDeadline.value - Date.now()) / 1000));
@@ -109,7 +110,7 @@ function startCountdownIfNeeded() {
             stopCountdown();
         }
     }, 1000);
-    remainingSeconds.value = LOCK_TTL_SECONDS;
+    remainingSeconds.value = Math.max(0, Math.round((lockDeadline.value - Date.now()) / 1000));
 }
 
 function stopCountdown() {
@@ -154,11 +155,11 @@ async function toggleSeat(seat) {
             seat.status = "AVAILABLE";
             if (selectedSeatIds.value.size === 0) stopCountdown();
         } else {
-            await http.post(`/seats/${seat.id}/lock`);
+            const res = await http.post(`/seats/${seat.id}/lock`);
             selectedSeatIds.value.add(seat.id);
             selectedSeatIds.value = new Set(selectedSeatIds.value);
             seat.status = "LOCKED";
-            startCountdownIfNeeded();
+            startCountdownIfNeeded(res.data.expires_at);
         }
     } catch (err) {
         // 409 = someone else already grabbed this seat between our fetch

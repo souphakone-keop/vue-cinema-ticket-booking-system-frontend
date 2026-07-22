@@ -6,6 +6,14 @@ const logs = ref([]);
 const loading = ref(true);
 const error = ref("");
 
+// Audit log entries only carry raw IDs (user_id / booking_id / seat_id).
+// Users and bookings lists already return human-readable names/seat codes,
+// so we fetch them once and join client-side instead of asking the
+// backend to change the log payload shape.
+const usersById = ref(new Map());
+const bookingsById = ref(new Map());
+const seatCodesById = ref(new Map());
+
 const filters = ref({
     user_id: "",
     event_type: "",
@@ -33,6 +41,45 @@ const eventBadge = (type) => {
     }
 };
 
+const fetchLookups = async () => {
+    try {
+        const [usersRes, bookingsRes] = await Promise.all([
+            adminHttp.get("/users"),
+            adminHttp.get("/admin/bookings"),
+        ]);
+
+        const users = usersRes.data.users || (Array.isArray(usersRes.data) ? usersRes.data : []);
+        usersById.value = new Map(users.map((u) => [u.id, u]));
+
+        const bookings = bookingsRes.data.bookings || (Array.isArray(bookingsRes.data) ? bookingsRes.data : []);
+        bookingsById.value = new Map(bookings.map((b) => [b.id, b]));
+
+        const seatMap = new Map();
+        for (const b of bookings) {
+            const ids = b.seat_ids || [];
+            const codes = b.seat_codes || [];
+            ids.forEach((seatId, i) => {
+                if (codes[i]) seatMap.set(seatId, codes[i]);
+            });
+        }
+        seatCodesById.value = seatMap;
+    } catch {
+        // Lookups are a display nicety — if they fail, logs still render
+        // with raw IDs instead of blocking the page.
+    }
+};
+
+function userDisplay(log) {
+    const user = usersById.value.get(log.user_id) || bookingsById.value.get(log.booking_id);
+    return user?.name || user?.user_name || null;
+}
+
+function seatDisplay(log) {
+    return seatCodesById.value.get(log.seat_id)
+        || bookingsById.value.get(log.booking_id)?.seat_codes?.join(", ")
+        || null;
+}
+
 const fetchLogs = async () => {
     loading.value = true;
     error.value = "";
@@ -55,7 +102,10 @@ const fetchLogs = async () => {
     }
 };
 
-onMounted(fetchLogs);
+onMounted(() => {
+    fetchLookups();
+    fetchLogs();
+});
 
 function resetFilters() {
     filters.value = { user_id: "", event_type: "" };
@@ -148,9 +198,15 @@ function formatDate(value) {
                                 </span>
                             </td>
                             <td class="text-slate-700">{{ log.message || "—" }}</td>
-                            <td class="font-mono text-xs text-slate-500">{{ log.user_id || "—" }}</td>
+                            <td>
+                                <p v-if="userDisplay(log)" class="text-slate-900">{{ userDisplay(log) }}</p>
+                                <p class="font-mono text-xs text-slate-500">{{ log.user_id || "—" }}</p>
+                            </td>
                             <td class="font-mono text-xs text-slate-500">{{ log.booking_id || "—" }}</td>
-                            <td class="font-mono text-xs text-slate-500">{{ log.seat_id || "—" }}</td>
+                            <td>
+                                <p v-if="seatDisplay(log)" class="text-slate-900">{{ seatDisplay(log) }}</p>
+                                <p class="font-mono text-xs text-slate-500">{{ log.seat_id || "—" }}</p>
+                            </td>
                             <td class="text-slate-500 text-xs">{{ formatDate(log.created_at) }}</td>
                         </tr>
                     </tbody>
