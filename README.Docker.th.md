@@ -11,14 +11,30 @@
 |---|---|
 | `Dockerfile` | Multi-stage build: `node:20-alpine` build static bundle, `nginx:alpine` เป็นคน serve |
 | `nginx.conf` | Serve `dist/` พร้อม fallback ไป `index.html` สำหรับ SPA |
-| `compose.yaml` | นิยาม service `frontend` แบบเดี่ยว — มีไว้ให้ backend team merge เข้า `docker-compose.yml` หลัก ไม่ใช่รันไฟล์นี้เดี่ยวๆ |
+| `compose.yaml` | นิยาม service `frontend` — รันเดี่ยวได้เลยตามที่เป็นอยู่ (`context: .`, ไม่มี `depends_on`) เพื่อทดสอบบนเครื่อง, ค่อยเพิ่ม `depends_on: [backend]` กลับตอน merge เข้าระบบเต็ม |
 
-## 1. Build image
+## แบบ A — `docker compose` (แนะนำสำหรับรันเดี่ยว)
 
 ```bash
-docker build -t  vue-cinema-ticket-booking-system-frontend \
+docker compose up --build   # build + start
+docker compose up           # start ด้วย image เดิม (ไม่ rebuild)
+docker compose down          # หยุด + ลบ
+```
+
+เปิดที่ `http://localhost:3000` ค่า `VITE_API_BASE_URL` ใน `compose.yaml`
+ตั้ง default ไว้เป็น `http://localhost:8080` — ถ้า backend อยู่ที่อื่น แก้
+ที่ block `args:` ในไฟล์นั้น แล้วรันใหม่ด้วย `--build`
+
+## แบบ B — `docker build` / `docker run` ตรงๆ
+
+เหมาะกับตอนอยากได้ image แบบ one-off โดยไม่แตะ `compose.yaml` หรืออยากใช้
+`VITE_API_BASE_URL` คนละค่าโดยไม่ต้องแก้ไฟล์:
+
+```bash
+docker build -t vue-cinema-ticket-booking-system-frontend \
   --build-arg VITE_API_BASE_URL=http://localhost:8080 \
   .
+docker run -d --name vue-cinema-ticket-booking-system-frontend -p 3000:80 vue-cinema-ticket-booking-system-frontend
 ```
 
 `--build-arg VITE_API_BASE_URL` **จำเป็นต้องใส่ถ้า backend ไม่ได้อยู่ที่
@@ -26,43 +42,37 @@ docker build -t  vue-cinema-ticket-booking-system-frontend \
 build time — ไม่มีทางเปลี่ยน API URL หลังจาก image build เสร็จแล้ว
 นอกจาก build ใหม่เท่านั้น
 
-## 2. รัน container
-
-```bash
-docker run -d --name  vue-cinema-ticket-booking-system-frontend -p 3000:80  vue-cinema-ticket-booking-system-frontend
-```
-
-เปิดที่ `http://localhost:3000` — port `80` ข้างในตายตัว (nginx); มีแค่
-port ฝั่ง host (ในตัวอย่างคือ `3000`) ที่เปลี่ยนได้ตามใจ — แค่อย่า map ไป
-`8080` เพราะ backend ใช้ port นั้นอยู่แล้ว
+port `80` ข้างในตายตัว (nginx); มีแค่ port ฝั่ง host (ในตัวอย่างคือ `3000`)
+ที่เปลี่ยนได้ตามใจ — แค่อย่า map ไป `8080` เพราะ backend ใช้ port นั้นอยู่แล้ว
 
 หยุด/ลบ:
 
 ```bash
-docker stop  vue-cinema-ticket-booking-system-frontend && docker rm  vue-cinema-ticket-booking-system-frontend
+docker stop vue-cinema-ticket-booking-system-frontend && docker rm vue-cinema-ticket-booking-system-frontend
 ```
 
-## 3. Update โค้ด
+## Update โค้ด
 
 นี่เป็น **static build** ไม่ใช่ dev server — nginx serve แค่สิ่งที่อยู่ใน
 `dist/` ตอน build เท่านั้น ไม่มี volume mount หรือ hot-reload ผูกไว้ ดังนั้น
 แก้โค้ดแล้วต้อง rebuild ใหม่ถึงจะเห็นผล:
 
 ```bash
-docker stop  vue-cinema-ticket-booking-system-frontend && docker rm  vue-cinema-ticket-booking-system-frontend
-docker build -t  vue-cinema-ticket-booking-system-frontend --build-arg VITE_API_BASE_URL=http://localhost:8080 .
-docker run -d --name  vue-cinema-ticket-booking-system-frontend -p 3000:80  vue-cinema-ticket-booking-system-frontend
+docker compose up --build
 ```
+
+(หรือทำ `docker build` + `docker run` ซ้ำตามแบบ B)
 
 ถ้ากำลังพัฒนาอยู่ ให้รัน `npm run dev` บนเครื่องตรงๆ แทน (reload ทันที
 เร็วกว่ามาก) แล้วค่อย build เป็น Docker image ตอนต้องการทดสอบ build จริง
 หรือ production เท่านั้น
 
-## 4. รันรวมกับระบบทั้งหมด (backend + redis + ...)
+## รันรวมกับระบบทั้งหมด (backend + redis + ...)
 
-repo นี้มีแค่ service `frontend` ใน `compose.yaml` เท่านั้น ถ้าจะรันทั้งระบบ
-ด้วยคำสั่งเดียว backend team ต้อง merge service นี้เข้า
-`docker-compose.yml` หลักของเขา:
+`compose.yaml` ในนี้รันเดี่ยวได้เลย แต่ถ้าจะรันทั้งระบบด้วยคำสั่งเดียว
+backend team ต้อง merge service `frontend` นี้เข้า `docker-compose.yml`
+หลักของเขา พร้อมเพิ่ม `depends_on` กลับมา และปรับ `context` ให้ชี้ไปที่
+ตำแหน่งจริงของ repo นี้เทียบกับไฟล์ compose หลัก:
 
 ```yaml
 services:
@@ -81,14 +91,6 @@ services:
 `http://localhost:8080` — ไม่ใช่ hostname ของ internal Docker network อย่าง
 `http://backend:8080` เพราะ JS ที่ build ออกมารันฝั่ง client ในเบราว์เซอร์
 ของผู้ใช้ ไม่ใช่ในเครือข่าย Docker
-
-merge เสร็จแล้วรันด้วย:
-
-```bash
-docker compose up --build   # rebuild ทุก service ก่อนรัน (ใช้หลังแก้โค้ด)
-docker compose up           # รันด้วย image เดิม (เร็วกว่า ไม่ rebuild)
-docker compose down          # หยุด + ลบ container ทั้งหมด
-```
 
 ## Troubleshooting
 
